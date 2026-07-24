@@ -85,6 +85,39 @@ def normalize_identification(value: Any) -> str | None:
     return re.sub(r"\D", "", text) or text
 
 
+
+def parse_integer_like_text(value: Any) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+
+    text = text.replace(" ", "")
+
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").split(",", 1)[0]
+        else:
+            text = text.split(".", 1)[0].replace(",", "")
+    elif "," in text:
+        text = text.split(",", 1)[0].replace(".", "")
+    elif "." in text:
+        parts = text.split(".")
+        if len(parts) == 2 and set(parts[1]) <= {"0"}:
+            text = parts[0]
+        else:
+            text = text.replace(".", "")
+
+    digits = re.sub(r"\D", "", text)
+    return digits or None
+
+
+def format_decimal_es(value: Any) -> str:
+    number = parse_number(value)
+    formatted = f"{number:,.2f}"
+    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+
 def parse_number(value: Any) -> float:
     if value is None or pd.isna(value) or str(value).strip() == "":
         return 0.0
@@ -118,3 +151,5 @@ def parse_date(value: Any) -> datetime | None:
         return None
 
     return parsed.to_pydatetime()
+
+

@@ -21,78 +21,118 @@ class MovementRepository:
 
     def persist_batch(self, result: dict[str, Any]) -> dict[str, int]:
         movements = result["movements"]
+        if not movements:
+            return {
+                "inserted": 0,
+                "duplicates": 0,
+            }
+
         inserted = 0
         duplicates = 0
 
-        if movements:
-            try:
-                response = self.mongo.movements.insert_many(
-                    movements,
-                    ordered=False,
-                )
-                inserted = len(response.inserted_ids)
-            except BulkWriteError as exc:
-                write_errors = exc.details.get("writeErrors", [])
-                duplicates = sum(
-                    1
-                    for error in write_errors
-                    if error.get("code") == 11000
-                )
-                inserted = len(movements) - len(write_errors)
-
-        grouped: dict[str, dict[str, Any]] = {}
-
-        for movement in movements:
-            identification = movement["identificacion"]
-            current = grouped.setdefault(
-                identification,
-                {
-                    "identificacion": identification,
-                    "nombre_tercero": movement.get("nombre_tercero"),
-                    "total_movimientos": 0,
-                    "total_debito": 0.0,
-                    "total_credito": 0.0,
-                    "total_saldo_movimiento": 0.0,
-                    "anios": set(),
-                    "cuentas": set(),
-                },
+        try:
+            response = self.mongo.movements.insert_many(
+                movements,
+                ordered=False,
             )
+            inserted = len(response.inserted_ids)
+        except BulkWriteError as exc:
+            write_errors = exc.details.get("writeErrors", [])
+            failed_indexes = {error["index"] for error in write_errors}
+            duplicate_indexes = {
+                error["index"]
+                for error in write_errors
+                if error.get("code") == 11000
+            }
 
-            current["total_movimientos"] += 1
-            current["total_debito"] += movement["debito"]
-            current["total_credito"] += movement["credito"]
-            current["total_saldo_movimiento"] += movement[
-                "saldo_movimiento"
-            ]
+            if failed_indexes != duplicate_indexes:
+                raise
 
-            if movement.get("anio"):
-                current["anios"].add(movement["anio"])
+            duplicates = len(duplicate_indexes)
+            inserted = len(movements) - len(failed_indexes)
 
-            if movement.get("codigo_contable"):
-                current["cuentas"].add(movement["codigo_contable"])
-
-        now = datetime.now(timezone.utc)
-
-        for identification, summary in grouped.items():
-            summary["anios"] = sorted(summary["anios"])
-            summary["cuentas"] = sorted(summary["cuentas"])
-            summary["fecha_ultima_actualizacion"] = now
-
-            self.mongo.third_parties.update_one(
-                {"identificacion": identification},
-                {
-                    "$set": summary,
-                    "$setOnInsert": {
-                        "fecha_primera_carga": now,
-                    },
-                },
-                upsert=True,
-            )
+        identifications = {
+            movement["identificacion"]
+            for movement in movements
+            if movement.get("identificacion")
+        }
+        self._refresh_third_party_summaries(identifications)
 
         return {
             "inserted": inserted,
             "duplicates": duplicates,
         }
+
+    def _refresh_third_party_summaries(
+        self,
+        identifications: set[str],
+    ) -> None:
+        if not identifications:
+            return
+
+        pipeline = [
+            {
+                "$match": {
+                    "identificacion": {
+                        "$in": sorted(identifications),
+                    }
+                }
+            },
+            {
+                "$sort": {
+                    "fecha_carga": 1,
+                    "fecha_elaboracion": 1,
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$identificacion",
+                    "nombre_tercero": {"$last": "$nombre_tercero"},
+                    "total_movimientos": {"$sum": 1},
+                    "total_debito": {"$sum": "$debito"},
+                    "total_credito": {"$sum": "$credito"},
+                    "total_saldo_movimiento": {"$sum": "$saldo_movimiento"},
+                    "anios": {"$addToSet": "$anio"},
+                    "cuentas": {"$addToSet": "$codigo_contable"},
+                    "fecha_primera_carga": {"$min": "$fecha_carga"},
+                }
+            },
+        ]
+
+        now = datetime.now(timezone.utc)
+
+        for summary in self.mongo.movements.aggregate(pipeline):
+            identification = summary["_id"]
+
+            self.mongo.third_parties.update_one(
+                {"identificacion": identification},
+                {
+                    "$set": {
+                        "identificacion": identification,
+                        "nombre_tercero": summary.get("nombre_tercero"),
+                        "total_movimientos": summary.get("total_movimientos", 0),
+                        "total_debito": summary.get("total_debito", 0.0),
+                        "total_credito": summary.get("total_credito", 0.0),
+                        "total_saldo_movimiento": summary.get(
+                            "total_saldo_movimiento",
+                            0.0,
+                        ),
+                        "anios": sorted(
+                            year
+                            for year in summary.get("anios", [])
+                            if year is not None
+                        ),
+                        "cuentas": sorted(
+                            account
+                            for account in summary.get("cuentas", [])
+                            if account
+                        ),
+                        "fecha_primera_carga": summary.get("fecha_primera_carga"),
+                        "fecha_ultima_actualizacion": now,
+                    }
+                },
+                upsert=True,
+            )
 
     def get_third_party(self, identification: str) -> dict[str, Any] | None:
         return self.mongo.third_parties.find_one(

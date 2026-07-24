@@ -12,6 +12,7 @@ from .normalization import (
     normalize_dataframe_columns,
     normalize_identification,
     parse_date,
+    parse_integer_like_text,
     parse_number,
 )
 from .parser import (
@@ -72,18 +73,18 @@ def _build_movement(
         "identificacion": identification,
         "nombre_tercero": clean_text(row.get("nombre_tercero"))
         or context.nombre_tercero,
-        "sucursal": clean_text(row.get("sucursal")),
-        "codigo_contable": clean_text(row.get("codigo_contable"))
+        "sucursal": parse_integer_like_text(row.get("sucursal")),
+        "codigo_contable": parse_integer_like_text(row.get("codigo_contable"))
         or context.codigo_contable,
         "cuenta_contable": clean_text(row.get("cuenta_contable"))
         or context.cuenta_contable,
         "comprobante": clean_text(row.get("comprobante")),
         "fecha_elaboracion": date_value,
         "anio": date_value.year if date_value else None,
-        "saldo_inicial": parse_number(row.get("saldo_inicial")),
-        "debito": parse_number(row.get("debito")),
-        "credito": parse_number(row.get("credito")),
-        "saldo_movimiento": parse_number(row.get("saldo_movimiento")),
+        "saldo_inicial": round(parse_number(row.get("saldo_inicial")), 2),
+        "debito": round(parse_number(row.get("debito")), 2),
+        "credito": round(parse_number(row.get("credito")), 2),
+        "saldo_movimiento": round(parse_number(row.get("saldo_movimiento")),2,),
         "archivo_origen": source_file,
         "hoja_origen": source_sheet,
         "fecha_carga": datetime.now(timezone.utc),

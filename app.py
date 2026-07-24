@@ -5,6 +5,7 @@ import streamlit as st
 from backend.config import ALLOWED_EXTENSIONS, TIPO_EXT_LIMITS, UPLOADER_LABEL
 from backend.ingestion import process_uploaded_files
 from backend.mongodb import MongoDBManager
+from backend.normalization import format_decimal_es
 from backend.repository import MovementRepository
 
 st.set_page_config(
@@ -84,12 +85,20 @@ if "last_result" in st.session_state:
 
     st.subheader("Resultado de la última carga")
 
-    cols = st.columns(5)
+    cols = st.columns(6)
     cols[0].metric("Archivos", processing["files_processed"])
     cols[1].metric("Filas leídas", processing["rows_read"])
-    cols[2].metric("Movimientos", len(processing["movements"]))
+    cols[2].metric("Movimientos detectados", len(processing["movements"]))
     cols[3].metric("Terceros", len(processing["third_parties"]))
-    cols[4].metric("Duplicados", persistence["duplicates"])
+    cols[4].metric("Insertados", persistence["inserted"])
+    cols[5].metric("Duplicados", persistence["duplicates"])
+
+    if persistence["inserted"] == 0 and len(processing["movements"]) > 0:
+        st.warning(
+            "MongoDB respondió correctamente, pero no se insertaron movimientos "
+            "nuevos. La carga probablemente ya existía y fue detectada como "
+            "duplicada por `movement_hash`."
+        )
 
     if processing["warnings"]:
         with st.expander("⚠️ Advertencias"):
@@ -119,8 +128,16 @@ try:
             metrics = st.columns(4)
             metrics[0].metric("Identificación", normalized)
             metrics[1].metric("Movimientos", summary.get("total_movimientos", 0))
-            metrics[2].metric("Débito", f"{summary.get('total_debito', 0):,.2f}")
-            metrics[3].metric("Crédito", f"{summary.get('total_credito', 0):,.2f}")
+            #metrics[2].metric("Débito", f"{summary.get('total_debito', 0):,.2f}")
+            #metrics[3].metric("Crédito", f"{summary.get('total_credito', 0):,.2f}")
+            metrics[2].metric(
+                "Débito",
+                format_decimal_es(summary.get("total_debito", 0)),
+            )
+            metrics[3].metric(
+                "Crédito",
+                format_decimal_es(summary.get("total_credito", 0)),
+            )
 
             movements = repository.get_movements(normalized)
             if movements:
