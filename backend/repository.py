@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -140,6 +141,160 @@ class MovementRepository:
             {"_id": 0},
         )
 
+    # METODOS PARA OBTENER cONSULTAS POR CUENTA CONTABLES
+    
+    def get_account_by_code(
+        self,
+        codigo_contable: str,
+    ) -> dict[str, Any] | None:
+        normalized_code = (codigo_contable or "").strip()
+        if not normalized_code:
+            return None
+
+        pipeline = [
+            {
+                "$match": {
+                    "codigo_contable": normalized_code,
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$codigo_contable",
+                    "cuentas_contables": {"$addToSet": "$cuenta_contable"},
+                    "total_movimientos": {"$sum": 1},
+                    "total_debito": {"$sum": "$debito"},
+                    "total_credito": {"$sum": "$credito"},
+                    "total_saldo_movimiento": {
+                        "$sum": "$saldo_movimiento"
+                    },
+                    "terceros": {"$addToSet": "$identificacion"},
+                }
+            },
+        ]
+
+        results = list(self.mongo.movements.aggregate(pipeline))
+        if not results:
+            return None
+
+        summary = results[0]
+        return {
+            "codigo_contable": summary["_id"],
+            "cuentas_contables": sorted(
+                value for value in summary.get("cuentas_contables", []) if value
+            ),
+            "total_movimientos": summary.get("total_movimientos", 0),
+            "total_debito": summary.get("total_debito", 0.0),
+            "total_credito": summary.get("total_credito", 0.0),
+            "total_saldo_movimiento": summary.get(
+                "total_saldo_movimiento",
+                0.0,
+            ),
+            "total_terceros": len(
+                [value for value in summary.get("terceros", []) if value]
+            ),
+        }
+
+    def get_account_by_name(
+        self,
+        cuenta_contable: str,
+    ) -> dict[str, Any] | None:
+        normalized_name = (cuenta_contable or "").strip()
+        if not normalized_name:
+            return None
+
+        pipeline = [
+            {
+                "$match": {
+                    "cuenta_contable": {
+                        "$regex": f"^{re.escape(normalized_name)}$",
+                        "$options": "i",
+                    }
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$cuenta_contable",
+                    "codigos_contables": {"$addToSet": "$codigo_contable"},
+                    "total_movimientos": {"$sum": 1},
+                    "total_debito": {"$sum": "$debito"},
+                    "total_credito": {"$sum": "$credito"},
+                    "total_saldo_movimiento": {
+                        "$sum": "$saldo_movimiento"
+                    },
+                    "terceros": {"$addToSet": "$identificacion"},
+                }
+            },
+        ]
+
+        results = list(self.mongo.movements.aggregate(pipeline))
+        if not results:
+            return None
+
+        summary = results[0]
+        return {
+            "cuenta_contable": summary["_id"],
+            "codigos_contables": sorted(
+                value for value in summary.get("codigos_contables", []) if value
+            ),
+            "total_movimientos": summary.get("total_movimientos", 0),
+            "total_debito": summary.get("total_debito", 0.0),
+            "total_credito": summary.get("total_credito", 0.0),
+            "total_saldo_movimiento": summary.get(
+                "total_saldo_movimiento",
+                0.0,
+            ),
+            "total_terceros": len(
+                [value for value in summary.get("terceros", []) if value]
+            ),
+        }
+
+    def get_movements_by_account_code(
+        self,
+        codigo_contable: str,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        normalized_code = (codigo_contable or "").strip()
+        if not normalized_code:
+            return []
+
+        cursor = (
+            self.mongo.movements.find(
+                {"codigo_contable": normalized_code},
+                {"_id": 0},
+            )
+            .sort("fecha_elaboracion", 1)
+            .limit(limit)
+        )
+
+        return list(cursor)
+
+    def get_movements_by_account_name(
+        self,
+        cuenta_contable: str,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        normalized_name = (cuenta_contable or "").strip()
+        if not normalized_name:
+            return []
+
+        cursor = (
+            self.mongo.movements.find(
+                {
+                    "cuenta_contable": {
+                        "$regex": f"^{re.escape(normalized_name)}$",
+                        "$options": "i",
+                    }
+                },
+                {"_id": 0},
+            )
+            .sort("fecha_elaboracion", 1)
+            .limit(limit)
+        )
+
+        return list(cursor)  
+    
+    # **********************************
+    
     def get_movements(
         self,
         identification: str,

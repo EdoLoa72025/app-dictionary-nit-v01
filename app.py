@@ -106,46 +106,150 @@ if "last_result" in st.session_state:
                 st.write(f"- {warning}")
 
 st.divider()
-st.header("🔎 Consulta por identificación")
+st.header("🔎 Consultas")
 
 repository = get_repository()
 
 try:
-    identification = st.text_input(
-        "Identificación / NIT",
-        placeholder="Ejemplo: 1234567890",
+    query_type = st.selectbox(
+        "Consultar por",
+        options=[
+            "Identificación / NIT",
+            "Código contable",
+            "Cuenta contable",
+        ],
+    )
+
+    search_value = st.text_input(
+        "Valor de búsqueda",
+        placeholder="Ejemplo: 1234567890 / 11050501 / Caja general",
     ).strip()
 
-    if identification:
-        normalized = repository.normalize_identification(identification)
-        summary = repository.get_third_party(normalized)
+    if search_value:
+        if query_type == "Identificación / NIT":
+            normalized = repository.normalize_identification(search_value)
+            summary = repository.get_third_party(normalized)
 
-        if not summary:
-            st.info("No se encontró información para esa identificación.")
-        else:
-            st.subheader(summary.get("nombre_tercero") or normalized)
+            if not summary:
+                st.info("No se encontró información para esa identificación.")
+            else:
+                st.subheader(summary.get("nombre_tercero") or normalized)
 
-            metrics = st.columns(4)
-            metrics[0].metric("Identificación", normalized)
-            metrics[1].metric("Movimientos", summary.get("total_movimientos", 0))
-            #metrics[2].metric("Débito", f"{summary.get('total_debito', 0):,.2f}")
-            #metrics[3].metric("Crédito", f"{summary.get('total_credito', 0):,.2f}")
-            metrics[2].metric(
-                "Débito",
-                format_decimal_es(summary.get("total_debito", 0)),
-            )
-            metrics[3].metric(
-                "Crédito",
-                format_decimal_es(summary.get("total_credito", 0)),
-            )
-
-            movements = repository.get_movements(normalized)
-            if movements:
-                st.dataframe(
-                    movements,
-                    use_container_width=True,
-                    hide_index=True,
+                metrics1 = st.columns(2)
+                metrics1[0].metric("Identificación", normalized)
+                metrics1[1].metric(
+                    "Movimientos",
+                    summary.get("total_movimientos", 0),
                 )
+                metrics2 = st.columns(2)
+                metrics2[0].metric(
+                    "Débito",
+                    f"{summary.get('total_debito', 0):,.2f}",
+                )
+                metrics2[1].metric(
+                    "Crédito",
+                    f"{summary.get('total_credito', 0):,.2f}",
+                )
+
+                movements = repository.get_movements(normalized)
+                if movements:
+                    st.dataframe(
+                        movements,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+        elif query_type == "Código contable":
+            summary = repository.get_account_by_code(search_value)
+
+            if not summary:
+                st.info("No se encontró información para ese código contable.")
+            else:
+                st.subheader(f"Código contable: {summary['codigo_contable']}")
+
+                metrics3 = st.columns(3)
+                metrics3[0].metric(
+                    "Código",
+                    summary["codigo_contable"],
+                )
+                metrics3[1].metric(
+                    "Movimientos",
+                    summary.get("total_movimientos", 0),
+                )
+                metrics3[2].metric(
+                    "Terceros",
+                    summary.get("total_terceros", 0),
+                )
+                metrics4 = st.columns(2)
+                metrics4[0].metric(
+                    "Débito",
+                    f"{summary.get('total_debito', 0):,.2f}",
+                )
+                metrics4[1].metric(
+                    "Crédito",
+                    f"{summary.get('total_credito', 0):,.2f}",
+                )
+
+                if summary.get("cuentas_contables"):
+                    st.caption(
+                        "Cuentas contables asociadas: "
+                        + ", ".join(summary["cuentas_contables"])
+                    )
+
+                movements = repository.get_movements_by_account_code(search_value)
+                if movements:
+                    st.dataframe(
+                        movements,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+        else:
+            summary = repository.get_account_by_name(search_value)
+
+            if not summary:
+                st.info("No se encontró información para esa cuenta contable.")
+            else:
+                st.subheader(
+                    f"Cuenta contable: {summary['cuenta_contable']}"
+                )
+
+                metrics5 = st.columns(3)
+                metrics5[0].metric(
+                    "Cuenta",
+                    summary["cuenta_contable"],
+                )
+                metrics5[1].metric(
+                    "Movimientos",
+                    summary.get("total_movimientos", 0),
+                )
+                metrics5[2].metric(
+                    "Terceros",
+                    summary.get("total_terceros", 0),
+                )
+                metrics6 = st.columns(1)
+                metrics6[0].metric(
+                    "Débito",
+                    f"{summary.get('total_debito', 0):,.2f}",
+                )
+                metrics6[1].metric(
+                    "Crédito",
+                    f"{summary.get('total_credito', 0):,.2f}",
+                )
+
+                if summary.get("codigos_contables"):
+                    st.caption(
+                        "Códigos contables asociados: "
+                        + ", ".join(summary["codigos_contables"])
+                    )
+
+                movements = repository.get_movements_by_account_name(search_value)
+                if movements:
+                    st.dataframe(
+                        movements,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 except Exception as exc:
     st.warning(
         "No se pudo consultar MongoDB. Verifica MONGODB_URI y la conectividad."
