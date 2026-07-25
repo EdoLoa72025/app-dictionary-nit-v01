@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+import pandas as pd
 
 from backend.config import ALLOWED_EXTENSIONS, TIPO_EXT_LIMITS, UPLOADER_LABEL
 from backend.ingestion import process_uploaded_files
@@ -253,5 +254,42 @@ try:
 except Exception as exc:
     st.warning(
         "No se pudo consultar MongoDB. Verifica MONGODB_URI y la conectividad."
+    )
+    st.caption(str(exc))
+
+
+
+st.divider()
+st.header("📘 Reporte general por código contable")
+
+try:
+    account_report = repository.get_account_code_report()
+
+    if not account_report:
+        st.info("No hay información disponible para el reporte general.")
+    else:
+        report_df = pd.DataFrame(account_report).rename(
+            columns={
+                "codigo_contable": "Código contable",
+                "cuenta_contable": "Cuenta contable",
+                "total_movimientos": "Movimientos",
+                "total_terceros": "Terceros",
+                "total_debito": "Débito",
+                "total_credito": "Crédito",
+                "total_saldo_movimiento": "Saldo movimiento",
+            }
+        )
+
+        for column in ["Débito", "Crédito", "Saldo movimiento"]:
+            report_df[column] = report_df[column].apply(format_decimal_es)
+
+        st.dataframe(
+            report_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+except Exception as exc:
+    st.warning(
+        "No se pudo construir el reporte general por código contable."
     )
     st.caption(str(exc))

@@ -295,6 +295,75 @@ class MovementRepository:
     
     # **********************************
     
+    # Reporte General de cuenta_contable *****
+    
+    def get_account_code_report(
+        self,
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        pipeline = [
+            {
+                "$group": {
+                    "_id": {
+                        "codigo_contable": "$codigo_contable",
+                        "cuenta_contable": "$cuenta_contable",
+                    },
+                    "total_movimientos": {"$sum": 1},
+                    "total_debito": {"$sum": "$debito"},
+                    "total_credito": {"$sum": "$credito"},
+                    "total_saldo_movimiento": {
+                        "$sum": "$saldo_movimiento"
+                    },
+                    "terceros": {"$addToSet": "$identificacion"},
+                }
+            },
+            {
+                "$sort": {
+                    "_id.codigo_contable": 1,
+                    "_id.cuenta_contable": 1,
+                }
+            },
+            {
+                "$limit": limit,
+            },
+        ]
+
+        results = list(self.mongo.movements.aggregate(pipeline))
+
+        report: list[dict[str, Any]] = []
+        for item in results:
+            report.append(
+                {
+                    "codigo_contable": item["_id"].get("codigo_contable"),
+                    "cuenta_contable": item["_id"].get("cuenta_contable"),
+                    "total_movimientos": item.get("total_movimientos", 0),
+                    "total_terceros": len(
+                        [
+                            value
+                            for value in item.get("terceros", [])
+                            if value
+                        ]
+                    ),
+                    "total_debito": item.get("total_debito", 0.0),
+                    "total_credito": item.get("total_credito", 0.0),
+                    "total_saldo_movimiento": item.get(
+                        "total_saldo_movimiento",
+                        0.0,
+                    ),
+                }
+            )
+
+        return report
+    
+    
+    
+    
+    # ****************************
+    
+    
+    
+    
+    
     def get_movements(
         self,
         identification: str,
